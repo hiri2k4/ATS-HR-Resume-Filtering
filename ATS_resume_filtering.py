@@ -1,85 +1,180 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score
 
+# -------------------------------
+# PAGE CONFIG
+# -------------------------------
+st.set_page_config(page_title="ATS Resume Screening", layout="centered")
 
-st.set_page_config(page_title="ATS Resume Screening System")
-st.title("📄 ATS Resume Shortlisting System (Excel Path Based)")
-st.write("Resumes are screened using skills extracted from the job dataset.")
+# -------------------------------
+# 🌌 NIGHT SKY BACKGROUND + STARS
+# -------------------------------
+st.markdown("""
+<style>
+.stApp {
+    background: linear-gradient(to bottom, #050514, #0b1030, #000000);
+    color: white;
+}
+.block-container {
+    background-color: rgba(10, 15, 40, 0.92);
+    padding: 2.5rem;
+    border-radius: 18px;
+}
+@keyframes twinkle {
+    0% { opacity: 0.3; }
+    50% { opacity: 0.9; }
+    100% { opacity: 0.3; }
+}
+.star {
+    position: fixed;
+    width: 2px;
+    height: 2px;
+    background: white;
+    border-radius: 50%;
+    animation: twinkle 4s infinite ease-in-out;
+}
+.star:nth-child(1) { top: 12%; left: 18%; }
+.star:nth-child(2) { top: 28%; left: 72%; animation-delay: 1s; }
+.star:nth-child(3) { top: 48%; left: 45%; animation-delay: 2s; }
+.star:nth-child(4) { top: 75%; left: 82%; animation-delay: 3s; }
+.star:nth-child(5) { top: 62%; left: 14%; animation-delay: 1.5s; }
+</style>
 
-job_dataset_path = "C:\Users\Lenovo\Downloads\JobsDatasetProcessed.xlsx"
+<div class="star"></div><div class="star"></div><div class="star"></div>
+<div class="star"></div><div class="star"></div>
+""", unsafe_allow_html=True)
+
+# -------------------------------
+# TITLE
+# -------------------------------
+st.markdown("<h1 style='text-align:center;'>🌟 ATS Resume Screening System 🌟</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align:center;'>Top 5 Resume Accuracy </h3>", unsafe_allow_html=True)
+
+# -------------------------------
+# LOAD EXCEL DATASET
+# -------------------------------
+job_dataset_path = r"C:\Users\Lenovo\Downloads\JobsDatasetProcessed.xlsx"
 job_df = pd.read_excel(job_dataset_path)
 
-st.subheader("📄 Upload Resume Files")
-uploaded_resumes = st.file_uploader("Upload multiple resumes (ALL file types allowed)",accept_multiple_files=True)
+# -------------------------------
+# FILTER 10 DATA ANALYST ROLES
+# -------------------------------
+job_df["Job Title"] = job_df["Job Title"].astype(str)
 
-results = []
-if uploaded_resumes:
+analyst_roles = [
+    title for title in job_df["Job Title"].unique()
+    if "data analyst" in title.lower()
+][:10]
+
+# -------------------------------
+# JOB ROLE SELECTION
+# -------------------------------
+st.subheader("🧑‍💼 Select Job Role")
+selected_role = st.radio("Choose one role", analyst_roles)
+
+# -------------------------------
+# UPLOAD RESUMES
+# -------------------------------
+st.subheader("📂 Upload Resumes")
+uploaded_resumes = st.file_uploader(
+    "Upload resumes (any file type, multiple allowed)",
+    accept_multiple_files=True
+)
+
+# -------------------------------
+# SUBMIT BUTTON
+# -------------------------------
+submit = st.button("🚀 Submit for ATS Evaluation")
+
+# -------------------------------
+# SAFE TEXT EXTRACTION
+# -------------------------------
+def extract_text_safe(file):
+    try:
+        return file.read().decode("utf-8", errors="ignore").lower()
+    except:
+        return ""
+
+# -------------------------------
+# AFTER SUBMIT
+# -------------------------------
+if submit:
+
+    if not uploaded_resumes:
+        st.error("❌ Please upload at least one resume.")
+        st.stop()
+
+    # Extract skills for selected role
+    role_df = job_df[job_df["Job Title"] == selected_role]
+
     skills = []
-
     for col in ["IT Skills", "Soft Skills"]:
-        if col in job_df.columns:
-            job_df[col] = job_df[col].dropna().astype(str)
-            for skill_list in job_df[col]:
-                skills.extend(skill_list.lower().split(","))
+        if col in role_df.columns:
+            role_df[col] = role_df[col].fillna("")
+            for val in role_df[col]:
+                skills.extend(val.lower().split(","))
 
-    skills = list(set([s.strip() for s in skills]))
+    skills = list(set([s.strip() for s in skills if s.strip()]))
 
-    st.subheader("🧠 Skills Used for ATS Matching")
-    st.write(", ".join(skills))
-
-    st.subheader("📊 ATS Screening Results")
+    # -------------------------------
+    # SCORE EACH RESUME
+    # -------------------------------
+    resume_scores = []
 
     for resume in uploaded_resumes:
-        text = resume.read().decode("utf-8").lower()
+        text = extract_text_safe(resume)
+        score = sum(1 for s in skills if s in text) / len(skills) if skills else 0
 
-        matched_skills = [s for s in skills if s in text]
-        match_score = len(matched_skills) / len(skills)
-
-        shortlisted = 1 if match_score >= 0.4 else 0
-
-        results.append({
-            "Resume Name": resume.name,
-            "Matched Skills": len(matched_skills),
-            "Match Score": round(match_score, 2),
-            "Shortlisted (1=Yes, 0=No)": shortlisted
+        resume_scores.append({
+            "Resume File": resume.name,
+            "Accuracy (%)": round(score * 100, 2)
         })
 
-    result_df = pd.DataFrame(results)
-    st.dataframe(result_df)
+    # -------------------------------
+    # TOP 10 ONLY
+    # -------------------------------
+    top10 = sorted(resume_scores, key=lambda x: x["Accuracy (%)"], reverse=True)[:10]
 
-    st.subheader("✅ Upload Ground Truth (Optional)")
-    st.write("CSV format: resume_name, selected (1 or 0)")
+    # -------------------------------
+    # DISPLAY EACH SEPARATELY
+    # -------------------------------
+    st.subheader("📋 Top 5 Resume Accuracy")
 
-    gt_file = st.file_uploader("Upload Ground Truth CSV", type="csv")
-
-    if gt_file:
-        gt_df = pd.read_csv(gt_file)
-
-        merged = result_df.merge(
-            gt_df,
-            left_on="Resume Name",
-            right_on="resume_name"
+    for i, r in enumerate(top10, start=1):
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(135deg, #1e3c72, #2a5298);
+                padding: 15px;
+                border-radius: 15px;
+                margin-bottom: 12px;
+                box-shadow: 0 0 15px rgba(0,255,255,0.25);
+            ">
+                <b>Rank {i}</b><br>
+                📄 {r['Resume File']}<br>
+                🎯 Accuracy: <span style="color:#00fff0;">{r['Accuracy (%)']}%</span>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-        acc = accuracy_score(
-            merged["selected"],
-            merged["Shortlisted (1=Yes, 0=No)"]
-        )
+    # -------------------------------
+    # BAR CHART (TOP 10)
+    # -------------------------------
+    st.subheader("📈 Top 10 Resume Match Scores")
 
-        st.success(f"🎯 ATS Accuracy: {acc * 100:.2f}%")
+    scores = [r["Accuracy (%)"] / 100 for r in top10]
 
-  
-    st.subheader("📈 Resume Match Score Visualization")
     fig, ax = plt.subplots()
-    ax.bar(result_df["Resume Name"], result_df["Match Score"])
-    ax.axhline(0.4)
-    ax.set_xlabel("Resumes")
+    ax.bar(range(1, len(scores) + 1), scores)
+    ax.set_xlabel("Top Ranked Resumes")
     ax.set_ylabel("Match Score")
-    ax.set_title("ATS Resume Match Scores")
-    plt.xticks(rotation=45)
+    ax.set_title(f"Top 10 ATS Rankers – {selected_role}")
+
     st.pyplot(fig)
 
-else:
-    st.info("Please upload resume files to start ATS screening.")
+
+
+
+
